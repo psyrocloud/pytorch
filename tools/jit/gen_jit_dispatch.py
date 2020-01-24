@@ -313,7 +313,8 @@ def gen_jit_dispatch(declarations, out, template_path, disable_autograd=False, s
                     args=pack_arguments(args[1:]), num_inputs=num_inputs)
 
     def requires_lvalue(arg):
-        return 'jit_type' in arg and arg['jit_type'] in {"Tensor!", "Tensor(a!)"}
+        jit_type = arg.get('jit_type')
+        return jit_type is not None and jit_type.startswith('Tensor') and '!' in jit_type
 
     def emit_decl_variant(decl):
         if ('emit_dummy_placeholder' in decl):
@@ -387,11 +388,18 @@ def gen_jit_dispatch(declarations, out, template_path, disable_autograd=False, s
     tensor_impl_methods = [{
         'name': name,
         'api_name': name,
+        'schema_string': schema_string,
         'overload_name': '',
         'method_of': ['Tensor'],
         'arguments': [{'name': 'self', 'simple_type': 'Tensor'}],
         'returns': [{'name': 'result', 'type': 'int64_t', 'dynamic_type': 'int64_t', 'simple_type': 'int64_t'}],
-    } for name in ['sizes', 'strides', 'dim', 'numel']]
+    } for name, schema_string in [
+        ('sizes', 'aten::sizes(Tensor self) -> int'),
+        ('strides', 'aten::strides(Tensor self) -> int'),
+        ('dim', 'aten::dim(Tensor self) -> int'),
+        ('numel', 'aten::numel(Tensor self) -> int'),
+    ]]
+
     aten_decls = load_aten_declarations(declarations) + tensor_impl_methods
     jit_decls = [d for d in aten_decls if is_jit_op(d)]
 
@@ -524,7 +532,25 @@ def match_signature(decl, constructed_string, should_match_schema):
     return constructed_string
 
 
+# index_put et al are the only ops whose schema_string isn't used directly.
+# TODO remove special handling and gen_jit_dispatch will become very simple
+NEEDS_SCHEMA_STRING_HACK = [
+    "aten::_index_put_impl_",
+    "aten::index.Tensor", 
+    "aten::index_put",
+    "aten::index_put_",
+]
+
+def needs_schema_string_hack(schema_string):
+    # return 'Tensor?[]' in schema_string
+    return any([schema_string.startswith(name) for name in NEEDS_SCHEMA_STRING_HACK])
+
+
 def signature(decl, should_match_schema=True):
+    schema_string = decl.get('schema_string')
+    if schema_string and not needs_schema_string_hack(schema_string):
+        return schema_string
+
     def format_arg(arg):
         name = arg['name']
         typ = jit_type_of(arg)
@@ -574,6 +600,7 @@ def signature(decl, should_match_schema=True):
     name = decl['name'] if not is_out_variant(decl) else decl['name'][:-4]
     overload_name = '.' + decl['overload_name'] if not decl['overload_name'] == '' else ''
     constructed_string = 'aten::{}{}({}) -> {}'.format(name, overload_name, arg_list, ret_list)
+
     return match_signature(decl, constructed_string, should_match_schema)
 
 
