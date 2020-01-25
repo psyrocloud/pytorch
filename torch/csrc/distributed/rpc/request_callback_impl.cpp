@@ -142,7 +142,7 @@ std::shared_ptr<FutureMessage> RequestCallbackImpl::processRpc(
       // Our response is satisfied when the rpcs come back.
       whenValueSet->addCallback(
           [responseFuture, messageId, rref](
-              const rpc::Message& /* unused */,
+              const auto& /* unused */,
               const c10::optional<utils::FutureError>& error) {
             if (!error) {
               Message m = ScriptRRefFetchRet({rref->getValue()}).toMessage();
@@ -170,7 +170,7 @@ std::shared_ptr<FutureMessage> RequestCallbackImpl::processRpc(
       // Our response is satisfied when the rpcs come back.
       whenValueSet->addCallback(
           [responseFuture, messageId, rref](
-              const rpc::Message& /* unused */,
+              const auto& /* unused */,
               const c10::optional<utils::FutureError>& error) {
             if (!error) {
               SerializedPyObj result =
